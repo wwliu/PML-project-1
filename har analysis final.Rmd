@@ -1,0 +1,110 @@
+---
+title: "Human Activity Recognition"
+author: 'Coursera: Practical Machine Learning'
+date: "Friday, July 25, 2014"
+output: html_document
+---
+```{r, echo=FALSE}
+# Set working directory
+setwd("H:\\Coursera\\Data Science Track\\08_Practical Machine Learning\\week 3\\Project 1")
+
+# Training data
+train <- read.csv("H:\\Coursera\\Data Science Track\\08_Practical Machine Learning\\week 3\\Project 1\\pml-training.csv",
+ header=TRUE, stringsAsFactors=FALSE, sep=",", na.strings="NA")
+
+# NA per numeric variable
+NAperVar <- NA
+
+for (j in 1:ncol(train))
+ { 
+  NAperVar[j] <- sum(is.na(train[ ,j])) 
+ }
+
+# NA per "string" variable
+NAperVar2 <- NA
+
+for (j in 1:ncol(train))
+ {
+  NAperVar2[j] <- sum(train[ ,j]=="")  
+ }
+
+# Cases met > 19000 NA's verwijderen (allemaal 19216 NA's)
+remove <- c(which(NAperVar > 19000), which(NAperVar2 > 19000))
+
+train <- train[ ,-remove] # Cleaned data set
+train <- train[ ,-(1:7)] # Remove vars not measuring anything
+train$classe <- as.factor(train$classe)
+
+# Make a train and test set
+set.seed(498)
+
+inTrain <- sample(1:nrow(train), (0.6*nrow(train)))
+
+cv.set <- train[-inTrain, ]
+train <- train[inTrain, ]
+
+######### Remove outliers from training set ##########
+trainOutlier <- scale(train[ ,-53])
+
+# Training set with outliers (> 2 std) removed
+trainOutRemove <- train[ ,-53]
+trainOutRemove[abs(trainOutlier) > 2.56] <- NA
+trainOutRemove <- cbind(trainOutRemove, train$classe)
+colnames(trainOutRemove)[53] <- "classe"
+
+# Mediaan invullen voor NA
+trainOutRemove2 <- trainOutRemove[ ,-53]
+
+for (j in 1:ncol(trainOutRemove2))
+  {
+   trainOutRemove2[ ,j][is.na(trainOutRemove2[ ,j])] <- median(trainOutRemove2[ ,j], na.rm=TRUE)
+  }
+
+trainOutRemove2 <- cbind(trainOutRemove2, trainOutRemove$classe)
+colnames(trainOutRemove2)[53] <- "classe"
+```
+### Introduction
+The research field "Human Activity Recognition" is a relatively new research area where researchers predict what activity a person is performing based on devices they are carrying or wearing. Such devices can be smartphones (which have built-in gyroscopes and accelerometers) or sensors attached to their bodies. Most research papers focus on predicting *what* activity a person is performing. The study by Velloso et. al (2013)[1] focusses on predicting how *well* a person was executing an exercise. The authors call this: "Qualitative Activity Recognition". To do this, subjects were performing 5 times 10 repetitions of the "Unilateral Dumbbell Biceps Curl" (a weight lifting exercise). One time correctly (classe A) and four times with deliberate common mistakes (classe B through E).
+
+- classe A: Did the exercise correctly
+- classe B: Throwing elbows to the front
+- classe C: Lifting dumbbell halfway
+- classe D: Lowering dumbbell halfway
+- classe E: Throwing hips to the front
+
+Data[2] was recorded using Razor inertial measurement units (IMU): 3-axial acceleration, gyroscope and magnetometer. Sensors were on the subjects glove, armband, lumbar belt and dumbbell. For the analysis Velloso et. al used a random forest approach with bagging and 10-fold cross validation.
+
+The full r syntax can be found in the same GITHUB repository under the file name "har analysis final.r".
+
+### Data preprocessing
+First the entire data set is loaded into R. A lot of variables have many missing values (all of these variables have 19216 NA's with 19622 cases in the data set). These variables are first removed from the data set. Then the data set is split into a training set (60%) and a test set (40%) using random sampling. Then two other training sets were made, one with all outliers removed (greater than 3 standarddeviations from the mean) and one which replaced outliers with the median.
+
+### Data analysis
+In line with Velloso et. al (2013) the data was analysed using random forest models. In total 7 different variations were tried. Variations included the number of trees, variables at each split (the "mtry" parameter), with outliers removed, outliers replaced with the median and with the top 20 most important variables in the model (based on mean decrease of the Gini index). For each of the models the error rate on the test set was the benchmark for its performance. In the end the random forest model with 1250 trees, mtry=10 and with outliers replaced by the median performed the best. The performance of this model is as follows:
+```{r, fig.height=8, echo=FALSE}
+library(randomForest)
+
+set.seed(701)
+
+rf6 <- randomForest(classe ~ ., data=trainOutRemove2, ntree=1250, mtry=10)
+
+print(rf6)
+
+varImpPlot(rf6)
+```
+
+  The out of sample error rate on the training set of this model is 0.70% which is really accurate. The plot displaying the importance of the variables suggests that the signals from the belt and dumbbell are the best predictors of how well the activity was performed. When cross validating this model on the test set the out of sample error is 0.57%. It is strange why the error rate is higher for the training set on which the random forest model is trained than on a new data set "the model has never seen". *Perhaps the readers can shed light on this.*
+```{r, echo=FALSE}
+print("Confusion matrix with actual and predicted classes on the test set")
+predsRF6 <- predict(object=rf6, newdata=cv.set, type="response")
+table(cv.set$classe, predsRF6) # Miss-class 0.57%
+error.test.set <- (1-(sum(predsRF6==cv.set$classe)) / nrow(cv.set)) * 100
+error.test.set <- round(error.test.set, digits=2 )
+print(paste("OOB estimate of  error rate:", error.test.set, "%"))
+```
+This model with 1250 trees, 10 variables at each split and outliers replaced with the median, proved to be accurate as all 20 test cases on the Coursera website were correctly predicted at the first try.
+
+### References
+[1] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+[2] http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises
